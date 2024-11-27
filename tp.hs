@@ -228,13 +228,22 @@ s2l (Snode (Ssym "fob") [args, body])
 s2l (Snode (Ssym "let") [Ssym x, e1, e2])
   = Llet x (s2l e1) (s2l e2)
 
-{- s2l (Snode (Ssym "fix") [decls, body])
+s2l (Snode (Ssym "fix") [decls, body])
   = let sdecl2ldecl :: Sexp -> (Var, Lexp)
+        -- declaration de variable
         sdecl2ldecl (Snode (Ssym v) [e]) = (v, s2l e)
+        -- declaration type
+        sdecl2ldecl (Snode (Ssym v) [t, e]) = (v, (Ltype (s2l e) (svar2ltype t)))
+        -- fob non type
         sdecl2ldecl (Snode (Snode (Ssym v) args) [e])
           = (v, Lfob (map svar2lvar args) (s2l e))
+        -- fob type (x (x1 ))
+        sdecl2ldecl (Snode (Snode (Ssym v) args) [t, e]) =
+            (v, Lfob (map svar2lvar args) (Ltype (s2l e) (svar2ltype t)))
+        
         sdecl2ldecl se = error ("Declation Psil inconnue: " ++ showSexp se)
-    in Lfix (map sdecl2ldecl (s2list decls)) (s2l body) -}
+
+    in Lfix (map sdecl2ldecl (s2list decls)) (s2l body)
 
 s2l (Snode f args)
   = Lsend (s2l f) (map s2l args)
@@ -253,6 +262,7 @@ data Value = Vnum Int
 
 instance Show Value where
     showsPrec p (Vnum n) = showsPrec p n
+    
     showsPrec p (Vbool b) = showsPrec p b
     showsPrec _ (Vbuiltin _) = showString "<primitive>"
     showsPrec _ (Vfob _ _ _) = showString "<fobjet>"
@@ -296,18 +306,18 @@ check :: Bool -> TEnv -> Lexp -> Type
 check _ _ (Lnum _) = Tnum
 check _ _ (Lbool _) = Tbool
 
-check True tenv (Lvar x) = 
+check _ tenv (Lvar x) = 
     case lookup x tenv of
         Just t -> t
         Nothing -> Terror  "Variable not defined"
 
-check True tenv (Ltype exp t) =
+check _ tenv (Ltype exp t) =
     let texp = check True tenv exp
     in if texp == t
         then t
-        else Terror  "Expression type do noy match expected type"
+        else Terror "Expression type do noy match expected type"
 
-check True tenv (Ltest cond etrue efalse) =
+check _ tenv (Ltest cond etrue efalse) =
     case check True tenv cond of
         Tbool ->
             let t1 = check True tenv etrue
@@ -317,13 +327,13 @@ check True tenv (Ltest cond etrue efalse) =
                 else Terror  "Condition branches do not have the same type"
         _ -> Terror  "Condition is not a boolean"
 
-check True tenv (Lfob args exp) =
+check _ tenv (Lfob args exp) =
     let targs = map snd args
         newEnv = tenv ++ args
         texp = check True newEnv exp
     in Tfob targs texp
 
-check True tenv (Lsend exp args) =
+check _ tenv (Lsend exp args) =
     case check True tenv exp of
         Tfob targs treturn ->
             let actualTypes = map (check True tenv) args
@@ -335,9 +345,19 @@ check True tenv (Lsend exp args) =
                 else Terror  "Argument type do not match expected argument types"
         _ -> Terror  "Object called is not a function"
 
-check True tenv (Llet var e1 e2) = 
+check _ tenv (Llet var e1 e2) = 
     let tvar = check True tenv e1
     in check True ((var, tvar) : tenv) e2
+
+check False tenv (Lfix decl body) =
+    let tenv' = map (\(vars, _) -> (vars, Terror "Temporary")) decl ++ tenv
+        guessedTypes = map (\(vars, e) -> (vars, check False tenv' e)) decl
+    in check True tenv ++ guessedTypes body
+
+
+check True tenv (Lfix decl body) =
+    check True tenv body
+    
 
 ---------------------------------------------------------------------------
 -- Pré-évaluation
@@ -387,7 +407,22 @@ type VEnv = [Value]
 eval :: VEnv -> Dexp -> Value
 eval _   (Dnum n) = Vnum n
 eval _   (Dbool b) = Vbool b
--- ¡¡COMPLÉTER ICI!!
+
+eval env (Dvar i) = 
+    env !! i
+
+eval env (Dtest cond etrue efalse) =
+    case eval env cond of
+        Vbool True -> eval env etrue
+        Vbool False -> eval env efalse
+
+eval env (Dfob n body) =
+    Vfob enn body
+
+eval env (Dsend body args) =
+    case eval env body of 
+
+        Vbuiltin f 
 
 
 ---------------------------------------------------------------------------
