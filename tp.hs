@@ -195,15 +195,19 @@ data Lexp = Lnum Int             -- Constante entière.
           | Lfix [(Var, Lexp)] Lexp
           deriving (Show, Eq)
 
+-- fonction prise telle quelle dans le corrigé
 s2list :: Sexp -> [Sexp]
 s2list Snil = []
 s2list (Snode se1 ses) = se1 : ses
 s2list se = error ("Pas une liste: " ++ showSexp se)
 
+-- modifiée pour suivre la construction du data
+-- on bind le type à la variable pour la verification
 svar2lvar :: Sexp -> (Var, Type)
 svar2lvar (Snode (Ssym v) [t]) = (v, svar2ltype t)
 svar2lvar se = error ("Pas un symbole: " ++ showSexp se)
 
+-- détermine le type d'une var -> Num ou Bool
 svar2ltype :: Sexp -> Type
 svar2ltype (Ssym "Num") = Tnum
 svar2ltype (Ssym "Bool") = Tbool
@@ -213,12 +217,13 @@ svar2ltype t = error ("Not a type " ++ show t)
 -- Première passe simple qui analyse une Sexp et construit une Lexp équivalente.
 s2l :: Sexp -> Lexp
 
+----- Code du corrigé tp1 ------
 s2l (Snum n) = Lnum n
 
 s2l (Ssym s) = Lvar s
 
-s2l (Snode (Ssym ":") [texp, t]) =
-     Ltype (s2l texp) (svar2ltype t)
+s2l (Snode (Ssym ":") [e, t]) =
+     Ltype (s2l e) (svar2ltype t)
 
 s2l (Snode (Ssym "if") [e1, e2, e3])
   = Ltest (s2l e1) (s2l e2) (s2l e3)
@@ -229,19 +234,20 @@ s2l (Snode (Ssym "fob") [args, body])
 s2l (Snode (Ssym "let") [Ssym x, e1, e2])
   = Llet x (s2l e1) (s2l e2)
 
+----- section modifiée -----
 s2l (Snode (Ssym "fix") [decls, body])
   = let sdecl2ldecl :: Sexp -> (Var, Lexp)
         -- declaration de variable
         sdecl2ldecl (Snode (Ssym v) [e]) = (v, s2l e)
-        -- declaration type
+        -- declaration typé
         sdecl2ldecl (Snode (Ssym v) [t, e]) = (v, (Ltype (s2l e) (svar2ltype t)))
-        -- fob non type
+        -- fob non typé
         sdecl2ldecl (Snode (Snode (Ssym v) args) [e])
           = (v, Lfob (map svar2lvar args) (s2l e))
-        -- fob type (x (x1 ))
+        -- fob typé
         sdecl2ldecl (Snode (Snode (Ssym v) args) [t, e]) =
             (v, Lfob (map svar2lvar args) (Ltype (s2l e) (svar2ltype t)))
-        
+          ----- fin des modifications -----       
         sdecl2ldecl se = error ("Declation Psil inconnue: " ++ showSexp se)
 
     in Lfix (map sdecl2ldecl (s2list decls)) (s2l body)
