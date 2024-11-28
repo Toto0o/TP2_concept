@@ -207,6 +207,7 @@ svar2lvar se = error ("Pas un symbole: " ++ showSexp se)
 svar2ltype :: Sexp -> Type
 svar2ltype (Ssym "Num") = Tnum
 svar2ltype (Ssym "Bool") = Tbool
+svar2ltype t = error ("Not a type " ++ show t)
 
 
 -- Première passe simple qui analyse une Sexp et construit une Lexp équivalente.
@@ -309,32 +310,32 @@ check _ _ (Lbool _) = Tbool
 check _ tenv (Lvar x) = 
     case lookup x tenv of
         Just t -> t
-        Nothing -> Terror  "Variable not defined"
+        Nothing -> Terror  $ "Variable " ++ x ++ " not found"
 
-check _ tenv (Ltype exp t) =
-    let texp = check True tenv exp
+check True tenv (Ltype e t) =
+    let texp = check True tenv e
     in if texp == t
         then t
-        else Terror "Expression type do noy match expected type"
+        else Terror "Expression type does not match expected type"
 
-check _ tenv (Ltest cond etrue efalse) =
+check True tenv (Ltest cond etrue efalse) =
     case check True tenv cond of
         Tbool ->
             let t1 = check True tenv etrue
                 t2 = check True tenv efalse
             in if t1 == t2
                 then t1
-                else Terror  "Condition branches do not have the same type"
+                else Terror $ "Branch do not match types -> " ++ show etrue ++ " : " ++ show t1 ++ " and " ++ show efalse ++ " : " ++ show t2
         _ -> Terror  "Condition is not a boolean"
 
-check _ tenv (Lfob args exp) =
+check True tenv (Lfob args e) =
     let targs = map snd args
-        newEnv = tenv ++ args
-        texp = check True newEnv exp
+        tenv' = tenv ++ args
+        texp = check True tenv' e
     in Tfob targs texp
 
-check _ tenv (Lsend exp args) =
-    case check True tenv exp of
+check True tenv (Lsend e args) =
+    case check True tenv e of
         Tfob targs treturn ->
             let actualTypes = map (check True tenv) args
                 matches = foldr (\(expected, actual) acc -> (expected == actual) && acc)
@@ -342,22 +343,35 @@ check _ tenv (Lsend exp args) =
                                 (zip targs actualTypes)
             in if matches
                 then treturn
-                else Terror  "Argument type do not match expected argument types"
-        _ -> Terror  "Object called is not a function"
+                else Terror $ "Arguments types " ++ show actualTypes ++ " do not match expected types"
+        v -> Terror $ show v ++ " is not a function"
 
-check _ tenv (Llet var e1 e2) = 
+check True tenv (Llet var e1 e2) = 
     let tvar = check True tenv e1
     in check True ((var, tvar) : tenv) e2
 
-check False tenv (Lfix decl body) =
-    let tenv' = map (\(vars, _) -> (vars, Terror "Temporary")) decl ++ tenv
-        guessedTypes = map (\(vars, e) -> (vars, check False tenv' e)) decl
-    in check True tenv ++ guessedTypes body
+check _ tenv (Lfix decl body) =
+    let 
+        guessedTypes = map (\(vars, e) -> (vars, check False tenv e)) decl
+        tenv' = guessedTypes ++ map (\(var, e) -> (var, check True (guessedTypes ++ tenv) e)) decl 
+    in check True tenv' body
 
 
-check True tenv (Lfix decl body) =
-    check True tenv body
-    
+check False _ (Ltype _ t) = t
+
+check False tenv (Ltest _ etrue _) =
+    check False tenv etrue
+
+check False tenv (Lfob args e) =
+    Tfob (map snd args) (check False (args ++ tenv) e)
+
+check False tenv (Lsend e _) =
+    case check False tenv e of
+        Tfob targs treturn -> Tfob targs treturn
+        _ -> Terror "Not a function in false"
+
+check False tenv (Llet _ _ e2) = check False tenv e2 
+
 
 ---------------------------------------------------------------------------
 -- Pré-évaluation
@@ -388,7 +402,7 @@ data Dexp = Dnum Int             -- Constante entière.
 -- dans le contexte.
 lookupDI :: TEnv -> Var -> Int -> Int
 lookupDI ((x1, _) : xs) x2 n = if x1 == x2 then n else lookupDI xs x2 (n + 1)
-lookupDI _ x _ = error ("Variable inconnue: " ++ show x)
+lookupDI env x _ = error ("Variable inconnue: " ++ show x ++ " in env :" ++ show env)
 
 -- Conversion de Lexp en Dexp.
 -- Les types contenus dans le "TEnv" ne sont en fait pas utilisés.
@@ -396,7 +410,39 @@ l2d :: TEnv -> Lexp -> Dexp
 l2d _ (Lnum n) = Dnum n
 l2d _ (Lbool b) = Dbool b
 l2d tenv (Lvar v) = Dvar (lookupDI tenv v 0)
--- ¡¡COMPLÉTER ICI!!
+
+l2d tenv (Ltype e _) =
+    l2d tenv e
+
+l2d tenv (Ltest cond etrue efalse) =
+    let dcond = l2d tenv cond
+        detrue = l2d tenv etrue
+        defalse = l2d tenv efalse
+    in Dtest dcond detrue defalse
+
+l2d tenv (Lfob args body) =
+    let n = length args
+        dbody = l2d (args ++ tenv) body
+    in Dfob n dbody
+
+l2d tenv (Lsend f args) =
+    let
+        df = l2d tenv f
+        dargs = map (l2d tenv) args
+    in Dsend df dargs
+
+l2d tenv (Llet x e1 e2) =
+    let
+        d1 = l2d tenv e1
+        d2 = l2d ((x, check True tenv e1) : tenv) e2
+    in Dlet d1 d2
+
+l2d tenv (Lfix decl body) =
+    let 
+        tenv' = map (\(var,_) -> (var, Terror "Temporary")) decl ++ tenv
+        ddecl = map (l2d tenv' . snd) decl
+        dbody = l2d tenv' body
+    in Dfix ddecl dbody
 
 ---------------------------------------------------------------------------
 -- Évaluateur                                                            --
@@ -415,15 +461,30 @@ eval env (Dtest cond etrue efalse) =
     case eval env cond of
         Vbool True -> eval env etrue
         Vbool False -> eval env efalse
+        _ -> error "Not a boolean"
 
 eval env (Dfob n body) =
-    Vfob enn body
+    Vfob env n body
 
 eval env (Dsend body args) =
-    case eval env body of 
+    let fun = eval env body
+        vargs = map (eval env) args
+    in
+    case fun of 
+        Vbuiltin f -> f vargs
+        Vfob fenv n fbody -> 
+            if n == length vargs
+            then eval (vargs ++ fenv) fbody
+            else error "Number of args don't match"
+        _ -> error "Not a function"
 
-        Vbuiltin f 
+eval env (Dlet e1 e2) =
+    let env' = eval env e1 : env
+    in eval env' e2
 
+eval env (Dfix decl body) =
+    let env' = map (\e -> eval env' e) decl ++ env
+    in eval env' body
 
 ---------------------------------------------------------------------------
 -- Toplevel                                                              --
