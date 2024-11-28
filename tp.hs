@@ -207,10 +207,15 @@ svar2lvar :: Sexp -> (Var, Type)
 svar2lvar (Snode (Ssym v) [t]) = (v, svar2ltype t)
 svar2lvar se = error ("Pas un symbole: " ++ showSexp se)
 
--- détermine le type d'une var -> Num ou Bool
+-- détermine le type d'une var : Num & Bool & Fob 
 svar2ltype :: Sexp -> Type
 svar2ltype (Ssym "Num") = Tnum
 svar2ltype (Ssym "Bool") = Tbool
+svar2ltype (Snode (Ssym "->") arglist) = 
+          let argtype = svar2ltype arglist
+          -- dernier arg est le type de retour
+          -- les autres sont le type des arguments
+          in Tfob (init argtype) (tail argtype)        
 svar2ltype t = error ("Not a type " ++ show t)
 
 
@@ -313,17 +318,27 @@ check :: Bool -> TEnv -> Lexp -> Type
 check _ _ (Lnum _) = Tnum
 check _ _ (Lbool _) = Tbool
 
+-- Variable --
+-- pour les variables, on retourne le type
+-- associé dans l'environnement
 check _ tenv (Lvar x) = 
     case lookup x tenv of
         Just t -> t
         Nothing -> Terror  $ "Variable " ++ x ++ " not found"
 
+-- Expression typé --
+-- pour les expressions typés, on vérifie que
+-- le type déclaré concorde avec l'expression
 check True tenv (Ltype e t) =
     let texp = check True tenv e
     in if texp == t
         then t
         else Terror "Expression type does not match expected type"
 
+-- Condition --
+-- on verifie que la condition est boolean
+-- on verifie que les branches de retour (true / false)
+-- ont le même type (qui sera le type de l'expression)
 check True tenv (Ltest cond etrue efalse) =
     case check True tenv cond of
         Tbool ->
@@ -334,12 +349,21 @@ check True tenv (Ltest cond etrue efalse) =
                 else Terror $ "Branch do not match types -> " ++ show etrue ++ " : " ++ show t1 ++ " and " ++ show efalse ++ " : " ++ show t2
         _ -> Terror  "Condition is not a boolean"
 
+-- Fonction --
+-- extrait le type déclaré des arguments et 
+-- ajoutes à l'environnement
+-- evalue ensuite l'expression de la fonction
+-- renvoit type fonctions
 check True tenv (Lfob args e) =
     let targs = map snd args
         tenv' = tenv ++ args
         texp = check True tenv' e
     in Tfob targs texp
 
+-- Appel de fonction --
+-- trouve le type de e et verifie que c'est bien une fonction
+-- verifie que le type des arguments respectent la déclaration (l'ordre compte)
+-- renvoi le type de retour de la fonction (type de l'appel)
 check True tenv (Lsend e args) =
     case check True tenv e of
         Tfob targs treturn ->
@@ -352,30 +376,35 @@ check True tenv (Lsend e args) =
                 else Terror $ "Arguments types " ++ show actualTypes ++ " do not match expected types"
         v -> Terror $ show v ++ " is not a function"
 
+-- Déclaration locale simple --
+-- bind le type de e1 et x dans l'environnement
+-- renvoi le type de e2
 check True tenv (Llet var e1 e2) = 
     let tvar = check True tenv e1
     in check True ((var, tvar) : tenv) e2
 
+-- Déclarations fix --
+-- Lfix sera toujours appelé avec True
+-- première étape de guessing des types des déclarations
+-- ajouter à l'environnement temporaire et verifier avec True les types
+-- trouver le type de l'expression de fix avec les types des déclarations vérifiés
 check _ tenv (Lfix decl body) =
     let 
         guessedTypes = map (\(vars, e) -> (vars, check False tenv e)) decl
         tenv' = guessedTypes ++ map (\(var, e) -> (var, check True (guessedTypes ++ tenv) e)) decl 
     in check True tenv' body
 
-
+-- Seulement pour fix --
+-- assume que les expressions sont bien typés --
 check False _ (Ltype _ t) = t
-
 check False tenv (Ltest _ etrue _) =
     check False tenv etrue
-
 check False tenv (Lfob args e) =
     Tfob (map snd args) (check False (args ++ tenv) e)
-
 check False tenv (Lsend e _) =
     case check False tenv e of
         Tfob targs treturn -> Tfob targs treturn
-        _ -> Terror "Not a function in false"
-
+        _ -> Terror "Not a function"
 check False tenv (Llet _ _ e2) = check False tenv e2 
 
 
@@ -417,32 +446,41 @@ l2d _ (Lnum n) = Dnum n
 l2d _ (Lbool b) = Dbool b
 l2d tenv (Lvar v) = Dvar (lookupDI tenv v 0)
 
+-- Expression typé --
 l2d tenv (Ltype e _) =
     l2d tenv e
 
+-- conditions / test
 l2d tenv (Ltest cond etrue efalse) =
     let dcond = l2d tenv cond
         detrue = l2d tenv etrue
         defalse = l2d tenv efalse
     in Dtest dcond detrue defalse
 
+-- Fonction 
+-- calcule le nombre d'argument
 l2d tenv (Lfob args body) =
     let n = length args
         dbody = l2d (args ++ tenv) body
     in Dfob n dbody
 
+-- Appel de fonction
 l2d tenv (Lsend f args) =
     let
         df = l2d tenv f
         dargs = map (l2d tenv) args
     in Dsend df dargs
 
+-- Déclaration locale simple --
 l2d tenv (Llet x e1 e2) =
     let
         d1 = l2d tenv e1
         d2 = l2d ((x, check True tenv e1) : tenv) e2
     in Dlet d1 d2
 
+-- Déclaration fix --
+-- ajoute les déclaration avec des types temporaire dans l'environnement
+-- pour permettre la récursion mutuelle; 
 l2d tenv (Lfix decl body) =
     let 
         tenv' = map (\(var,_) -> (var, Terror "Temporary")) decl ++ tenv
@@ -460,18 +498,24 @@ eval :: VEnv -> Dexp -> Value
 eval _   (Dnum n) = Vnum n
 eval _   (Dbool b) = Vbool b
 
+-- Variables --
+-- Renvoi la valeur de l'environnement à l'indice donné
 eval env (Dvar i) = 
     env !! i
 
+-- Condition --
 eval env (Dtest cond etrue efalse) =
     case eval env cond of
         Vbool True -> eval env etrue
         Vbool False -> eval env efalse
         _ -> error "Not a boolean"
 
+-- Fonction --
 eval env (Dfob n body) =
     Vfob env n body
 
+-- Appel de gonction --
+-- fonction builtin (binaire) ou custom (fob)
 eval env (Dsend body args) =
     let fun = eval env body
         vargs = map (eval env) args
@@ -484,10 +528,14 @@ eval env (Dsend body args) =
             else error "Number of args don't match"
         _ -> error "Not a function"
 
+-- Déclaration locale simple --
 eval env (Dlet e1 e2) =
     let env' = eval env e1 : env
     in eval env' e2
 
+-- Déclaration fix --
+-- même principe qu'au TP1; on retarde l'evaluation des arguments
+-- pour éviter une erreur de variables non déclarées
 eval env (Dfix decl body) =
     let env' = map (\e -> eval env' e) decl ++ env
     in eval env' body
