@@ -195,29 +195,48 @@ data Lexp = Lnum Int             -- Constante entière.
           | Lfix [(Var, Lexp)] Lexp
           deriving (Show, Eq)
 
+-- fonction prise telle quelle dans le corrigé
 s2list :: Sexp -> [Sexp]
 s2list Snil = []
 s2list (Snode se1 ses) = se1 : ses
 s2list se = error ("Pas une liste: " ++ showSexp se)
 
+-- **
+-- modifiée pour suivre la construction du data
+-- on bind le type à la variable pour la verification
 svar2lvar :: Sexp -> (Var, Type)
-svar2lvar (Snode (Ssym v) [t]) = (v, svar2ltype t)
+svar2lvar (Snode (Ssym v) [t]) = (v, s2ltype t)
 svar2lvar se = error ("Pas un symbole: " ++ showSexp se)
 
-svar2ltype :: Sexp -> Type
-svar2ltype (Ssym "Num") = Tnum
-svar2ltype (Ssym "Bool") = Tbool
+-- ** 
+-- détermine le type d'une var : Num & Bool & Fob 
+s2ltype :: Sexp -> Type
+s2ltype (Ssym "Num") = Tnum
+s2ltype (Ssym "Bool") = Tbool
+-- type Terror temporaire pour l'enlever apres avec filter
+s2ltype (Ssym "->") = Terror "Temporary"
+s2ltype (Snode type1 typen) =
+    let lf = s2list (Snode type1 typen)
+        -- utilise filter sur la liste des types Type (map sur declarations) 
+        -- pour enlever les Terror "Temporary" 
+        ltype = filter (\t -> case t of 
+                                Terror "Temporary" -> False
+                                _ -> True) (map s2ltype lf)
+    in Tfob (init ltype) (last ltype)
+
+s2ltype se = error (show se ++ " is not a type")
 
 
 -- Première passe simple qui analyse une Sexp et construit une Lexp équivalente.
 s2l :: Sexp -> Lexp
 
+----- Code du corrigé tp1 ------
 s2l (Snum n) = Lnum n
 
 s2l (Ssym s) = Lvar s
 
-s2l (Snode (Ssym ":") [texp, t]) =
-     Ltype (s2l texp) (svar2ltype t)
+s2l (Snode (Ssym ":") [e, t]) =
+     Ltype (s2l e) (s2ltype t)
 
 s2l (Snode (Ssym "if") [e1, e2, e3])
   = Ltest (s2l e1) (s2l e2) (s2l e3)
@@ -228,19 +247,21 @@ s2l (Snode (Ssym "fob") [args, body])
 s2l (Snode (Ssym "let") [Ssym x, e1, e2])
   = Llet x (s2l e1) (s2l e2)
 
+-- **
+----- section modifiée -----
 s2l (Snode (Ssym "fix") [decls, body])
   = let sdecl2ldecl :: Sexp -> (Var, Lexp)
         -- declaration de variable
         sdecl2ldecl (Snode (Ssym v) [e]) = (v, s2l e)
-        -- declaration type
-        sdecl2ldecl (Snode (Ssym v) [t, e]) = (v, (Ltype (s2l e) (svar2ltype t)))
-        -- fob non type
+        -- declaration typé
+        sdecl2ldecl (Snode (Ssym v) [t, e]) = (v, (Ltype (s2l e) (s2ltype t)))
+        -- fob non typé
         sdecl2ldecl (Snode (Snode (Ssym v) args) [e])
           = (v, Lfob (map svar2lvar args) (s2l e))
-        -- fob type (x (x1 ))
+        -- fob typé
         sdecl2ldecl (Snode (Snode (Ssym v) args) [t, e]) =
-            (v, Lfob (map svar2lvar args) (Ltype (s2l e) (svar2ltype t)))
-        
+            (v, Lfob (map svar2lvar args) (Ltype (s2l e) (s2ltype t)))
+          ----- fin des modifications -----       
         sdecl2ldecl se = error ("Declation Psil inconnue: " ++ showSexp se)
 
     in Lfix (map sdecl2ldecl (s2list decls)) (s2l body)
@@ -306,35 +327,55 @@ check :: Bool -> TEnv -> Lexp -> Type
 check _ _ (Lnum _) = Tnum
 check _ _ (Lbool _) = Tbool
 
+-- ** -> tout le reste de la fonction
+-- Variable --
+-- pour les variables, on retourne le type
+-- associé dans l'environnement
 check _ tenv (Lvar x) = 
     case lookup x tenv of
         Just t -> t
-        Nothing -> Terror  "Variable not defined"
+        Nothing -> Terror  $ "Variable " ++ x ++ " not found"
 
-check _ tenv (Ltype exp t) =
-    let texp = check True tenv exp
+-- Expression typé --
+-- pour les expressions typés, on vérifie que
+-- le type déclaré concorde avec l'expression
+check True tenv (Ltype e t) =
+    let texp = check True tenv e
     in if texp == t
         then t
-        else Terror "Expression type do noy match expected type"
+        else Terror "Expression type does not match expected type"
 
-check _ tenv (Ltest cond etrue efalse) =
+-- Condition --
+-- on verifie que la condition est boolean
+-- on verifie que les branches de retour (true / false)
+-- ont le même type (qui sera le type de l'expression)
+check True tenv (Ltest cond etrue efalse) =
     case check True tenv cond of
         Tbool ->
             let t1 = check True tenv etrue
                 t2 = check True tenv efalse
             in if t1 == t2
                 then t1
-                else Terror  "Condition branches do not have the same type"
+                else Terror $ "Branch do not match types -> " ++ show etrue ++ " : " ++ show t1 ++ " and " ++ show efalse ++ " : " ++ show t2
         _ -> Terror  "Condition is not a boolean"
 
-check _ tenv (Lfob args exp) =
+-- Fonction --
+-- extrait le type déclaré des arguments et 
+-- ajoutes à l'environnement
+-- evalue ensuite l'expression de la fonction
+-- renvoit type fonctions
+check True tenv (Lfob args e) =
     let targs = map snd args
-        newEnv = tenv ++ args
-        texp = check True newEnv exp
+        tenv' = tenv ++ args
+        texp = check True tenv' e
     in Tfob targs texp
 
-check _ tenv (Lsend exp args) =
-    case check True tenv exp of
+-- Appel de fonction --
+-- trouve le type de e et verifie que c'est bien une fonction
+-- verifie que le type des arguments respectent la déclaration (l'ordre compte)
+-- renvoi le type de retour de la fonction (type de l'appel)
+check True tenv (Lsend e args) =
+    case check True tenv e of
         Tfob targs treturn ->
             let actualTypes = map (check True tenv) args
                 matches = foldr (\(expected, actual) acc -> (expected == actual) && acc)
@@ -342,22 +383,40 @@ check _ tenv (Lsend exp args) =
                                 (zip targs actualTypes)
             in if matches
                 then treturn
-                else Terror  "Argument type do not match expected argument types"
-        _ -> Terror  "Object called is not a function"
+                else Terror $ "Arguments types " ++ show actualTypes ++ " do not match expected types"
+        v -> Terror $ show v ++ " is not a function"
 
-check _ tenv (Llet var e1 e2) = 
+-- Déclaration locale simple --
+-- bind le type de e1 et x dans l'environnement
+-- renvoi le type de e2
+check True tenv (Llet var e1 e2) = 
     let tvar = check True tenv e1
     in check True ((var, tvar) : tenv) e2
 
-check False tenv (Lfix decl body) =
-    let tenv' = map (\(vars, _) -> (vars, Terror "Temporary")) decl ++ tenv
-        guessedTypes = map (\(vars, e) -> (vars, check False tenv' e)) decl
-    in check True tenv ++ guessedTypes body
+-- Déclarations fix --
+-- Lfix sera toujours appelé avec True
+-- première étape de guessing des types des déclarations
+-- ajouter à l'environnement temporaire et verifier avec True les types
+-- trouver le type de l'expression de fix avec les types des déclarations vérifiés
+check _ tenv (Lfix decl body) =
+    let 
+        guessedTypes = map (\(vars, e) -> (vars, check False tenv e)) decl
+        tenv' = guessedTypes ++ map (\(var, e) -> (var, check True (guessedTypes ++ tenv) e)) decl 
+    in check True tenv' body
 
+-- Seulement pour fix --
+-- assume que les expressions sont bien typés --
+check False _ (Ltype _ t) = t
+check False tenv (Ltest _ etrue _) =
+    check False tenv etrue
+check False tenv (Lfob args e) =
+    Tfob (map snd args) (check False (args ++ tenv) e)
+check False tenv (Lsend e _) =
+    case check False tenv e of
+        Tfob targs treturn -> Tfob targs treturn
+        _ -> Terror "Not a function"
+check False tenv (Llet _ _ e2) = check False tenv e2 
 
-check True tenv (Lfix decl body) =
-    check True tenv body
-    
 
 ---------------------------------------------------------------------------
 -- Pré-évaluation
@@ -388,7 +447,7 @@ data Dexp = Dnum Int             -- Constante entière.
 -- dans le contexte.
 lookupDI :: TEnv -> Var -> Int -> Int
 lookupDI ((x1, _) : xs) x2 n = if x1 == x2 then n else lookupDI xs x2 (n + 1)
-lookupDI _ x _ = error ("Variable inconnue: " ++ show x)
+lookupDI env x _ = error ("Variable inconnue: " ++ show x ++ " in env :" ++ show env)
 
 -- Conversion de Lexp en Dexp.
 -- Les types contenus dans le "TEnv" ne sont en fait pas utilisés.
@@ -396,7 +455,52 @@ l2d :: TEnv -> Lexp -> Dexp
 l2d _ (Lnum n) = Dnum n
 l2d _ (Lbool b) = Dbool b
 l2d tenv (Lvar v) = Dvar (lookupDI tenv v 0)
--- ¡¡COMPLÉTER ICI!!
+
+-- ** -> tout le reste de la fonction; ressemble pas mal au tp1, tres facile a faire car 
+-- la structure data Dexp facilite la manipulation des données
+-- Expression typé --
+l2d tenv (Ltype e _) =
+    l2d tenv e
+
+-- conditions / test
+l2d tenv (Ltest cond etrue efalse) =
+    let dcond = l2d tenv cond
+        detrue = l2d tenv etrue
+        defalse = l2d tenv efalse
+    in Dtest dcond detrue defalse
+
+-- Fonction 
+-- calcule le nombre d'argument
+l2d tenv (Lfob args body) =
+    let n = length args
+        dbody = l2d (args ++ tenv) body
+    in Dfob n dbody
+
+-- Appel de fonction
+l2d tenv (Lsend f args) =
+    let
+        df = l2d tenv f
+        dargs = map (l2d tenv) args
+    in Dsend df dargs
+
+-- Déclaration locale simple --
+l2d tenv (Llet x e1 e2) =
+    let
+        d1 = l2d tenv e1
+        d2 = l2d ((x, check True tenv e1) : tenv) e2
+    in Dlet d1 d2
+
+-- Déclaration fix --
+-- ajoute les déclaration avec des types temporaire dans l'environnement
+-- pour permettre la récursion mutuelle; 
+l2d tenv (Lfix decl body) =
+    let 
+        -- Ajout de type temporaire pour permettre la recursion mutuelle
+        -- les variables sont ajoute a l'environnement avec un type Terror "Temporaire"
+        tenv' = map (\(var,_) -> (var, Terror "Temporary")) decl ++ tenv
+        ddecl = map (l2d tenv' . snd) decl
+        dbody = l2d tenv' body
+    in Dfix ddecl dbody
 
 ---------------------------------------------------------------------------
 -- Évaluateur                                                            --
@@ -408,22 +512,54 @@ eval :: VEnv -> Dexp -> Value
 eval _   (Dnum n) = Vnum n
 eval _   (Dbool b) = Vbool b
 
+-- ** Ressemble beaucoup au tp1, quelques détails près comme
+-- les références aux variables avev l'index de De Brujin au
+-- lieu de leur nom!
+-- Variables --
+-- Renvoi la valeur de l'environnement à l'indice donné
 eval env (Dvar i) = 
+    -- equivalent a "element = list[i]"
     env !! i
 
+-- Condition --
 eval env (Dtest cond etrue efalse) =
     case eval env cond of
         Vbool True -> eval env etrue
         Vbool False -> eval env efalse
+        _ -> error "Not a boolean"
 
+-- Fonction --
 eval env (Dfob n body) =
-    Vfob enn body
+    Vfob env n body
 
+-- ** -> seul changement est dans le nombre d'argument 
+-- au lieu des noms de variables; permet la verification
+-- que la fonction est appele avec le bon nombre d'arg!
+-- Appel de gonction --
+-- fonction builtin (binaire) ou custom (fob)
 eval env (Dsend body args) =
-    case eval env body of 
+    let fun = eval env body
+        vargs = map (eval env) args
+    in
+    case fun of 
+        Vbuiltin f -> f vargs
+        Vfob fenv n fbody -> 
+            if n == length vargs
+            then eval (vargs ++ fenv) fbody
+            else error "Number of args don't match"
+        _ -> error "Not a function"
 
-        Vbuiltin f 
+-- Déclaration locale simple --
+eval env (Dlet e1 e2) =
+    let env' = eval env e1 : env
+    in eval env' e2
 
+-- Déclaration fix --
+-- même principe qu'au TP1; on retarde l'evaluation des arguments
+-- pour éviter une erreur de variables non déclarées
+eval env (Dfix decl body) =
+    let env' = map (\e -> eval env' e) decl ++ env
+    in eval env' body
 
 ---------------------------------------------------------------------------
 -- Toplevel                                                              --
