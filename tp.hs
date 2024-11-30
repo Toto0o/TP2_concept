@@ -201,22 +201,30 @@ s2list Snil = []
 s2list (Snode se1 ses) = se1 : ses
 s2list se = error ("Pas une liste: " ++ showSexp se)
 
+-- **
 -- modifiée pour suivre la construction du data
 -- on bind le type à la variable pour la verification
 svar2lvar :: Sexp -> (Var, Type)
-svar2lvar (Snode (Ssym v) [t]) = (v, svar2ltype t)
+svar2lvar (Snode (Ssym v) [t]) = (v, s2ltype t)
 svar2lvar se = error ("Pas un symbole: " ++ showSexp se)
 
+-- ** 
 -- détermine le type d'une var : Num & Bool & Fob 
-svar2ltype :: Sexp -> Type
-svar2ltype (Ssym "Num") = Tnum
-svar2ltype (Ssym "Bool") = Tbool
-svar2ltype (Snode (Ssym "->") arglist) = 
-          let argtype = svar2ltype arglist
-          -- dernier arg est le type de retour
-          -- les autres sont le type des arguments
-          in Tfob (init argtype) (tail argtype)        
-svar2ltype t = error ("Not a type " ++ show t)
+s2ltype :: Sexp -> Type
+s2ltype (Ssym "Num") = Tnum
+s2ltype (Ssym "Bool") = Tbool
+-- type Terror temporaire pour l'enlever apres avec filter
+s2ltype (Ssym "->") = Terror "Temporary"
+s2ltype (Snode type1 typen) =
+    let lf = s2list (Snode type1 typen)
+        -- utilise filter sur la liste des types Type (map sur declarations) 
+        -- pour enlever les Terror "Temporary" 
+        ltype = filter (\t -> case t of 
+                                Terror "Temporary" -> False
+                                _ -> True) (map s2ltype lf)
+    in Tfob (init ltype) (last ltype)
+
+s2ltype se = error (show se ++ " is not a type")
 
 
 -- Première passe simple qui analyse une Sexp et construit une Lexp équivalente.
@@ -228,7 +236,7 @@ s2l (Snum n) = Lnum n
 s2l (Ssym s) = Lvar s
 
 s2l (Snode (Ssym ":") [e, t]) =
-     Ltype (s2l e) (svar2ltype t)
+     Ltype (s2l e) (s2ltype t)
 
 s2l (Snode (Ssym "if") [e1, e2, e3])
   = Ltest (s2l e1) (s2l e2) (s2l e3)
@@ -239,19 +247,20 @@ s2l (Snode (Ssym "fob") [args, body])
 s2l (Snode (Ssym "let") [Ssym x, e1, e2])
   = Llet x (s2l e1) (s2l e2)
 
+-- **
 ----- section modifiée -----
 s2l (Snode (Ssym "fix") [decls, body])
   = let sdecl2ldecl :: Sexp -> (Var, Lexp)
         -- declaration de variable
         sdecl2ldecl (Snode (Ssym v) [e]) = (v, s2l e)
         -- declaration typé
-        sdecl2ldecl (Snode (Ssym v) [t, e]) = (v, (Ltype (s2l e) (svar2ltype t)))
+        sdecl2ldecl (Snode (Ssym v) [t, e]) = (v, (Ltype (s2l e) (s2ltype t)))
         -- fob non typé
         sdecl2ldecl (Snode (Snode (Ssym v) args) [e])
           = (v, Lfob (map svar2lvar args) (s2l e))
         -- fob typé
         sdecl2ldecl (Snode (Snode (Ssym v) args) [t, e]) =
-            (v, Lfob (map svar2lvar args) (Ltype (s2l e) (svar2ltype t)))
+            (v, Lfob (map svar2lvar args) (Ltype (s2l e) (s2ltype t)))
           ----- fin des modifications -----       
         sdecl2ldecl se = error ("Declation Psil inconnue: " ++ showSexp se)
 
@@ -318,6 +327,7 @@ check :: Bool -> TEnv -> Lexp -> Type
 check _ _ (Lnum _) = Tnum
 check _ _ (Lbool _) = Tbool
 
+-- ** -> tout le reste de la fonction
 -- Variable --
 -- pour les variables, on retourne le type
 -- associé dans l'environnement
@@ -446,6 +456,8 @@ l2d _ (Lnum n) = Dnum n
 l2d _ (Lbool b) = Dbool b
 l2d tenv (Lvar v) = Dvar (lookupDI tenv v 0)
 
+-- ** -> tout le reste de la fonction; ressemble pas mal au tp1, tres facile a faire car 
+-- la structure data Dexp facilite la manipulation des données
 -- Expression typé --
 l2d tenv (Ltype e _) =
     l2d tenv e
@@ -483,6 +495,8 @@ l2d tenv (Llet x e1 e2) =
 -- pour permettre la récursion mutuelle; 
 l2d tenv (Lfix decl body) =
     let 
+        -- Ajout de type temporaire pour permettre la recursion mutuelle
+        -- les variables sont ajoute a l'environnement avec un type Terror "Temporaire"
         tenv' = map (\(var,_) -> (var, Terror "Temporary")) decl ++ tenv
         ddecl = map (l2d tenv' . snd) decl
         dbody = l2d tenv' body
@@ -498,9 +512,13 @@ eval :: VEnv -> Dexp -> Value
 eval _   (Dnum n) = Vnum n
 eval _   (Dbool b) = Vbool b
 
+-- ** Ressemble beaucoup au tp1, quelques détails près comme
+-- les références aux variables avev l'index de De Brujin au
+-- lieu de leur nom!
 -- Variables --
 -- Renvoi la valeur de l'environnement à l'indice donné
 eval env (Dvar i) = 
+    -- equivalent a "element = list[i]"
     env !! i
 
 -- Condition --
@@ -514,6 +532,9 @@ eval env (Dtest cond etrue efalse) =
 eval env (Dfob n body) =
     Vfob env n body
 
+-- ** -> seul changement est dans le nombre d'argument 
+-- au lieu des noms de variables; permet la verification
+-- que la fonction est appele avec le bon nombre d'arg!
 -- Appel de gonction --
 -- fonction builtin (binaire) ou custom (fob)
 eval env (Dsend body args) =
