@@ -6,39 +6,97 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Tests unitaires et préliminaires
+; Tests unitaires et préliminaires
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Type des nombres entiers
-5  ; ↝ Left (Tnum,5)
-(+ 5 6) ; ↝ Left (Tnum,11)
-(: (> 2 5) Bool) ;↝ Left (Tbool,False)
-(: (> x 5) Bool) ;↝ 
-;(if (= x 5) x 0) ; Right "Condition is not a boolean"
 
-;((x Num 5) x) ; Left (Tnum,5)
+;;; Type des nombres entiers
+;5  ; ↝ Left (Tnum,5)
+;(+ 5 6) ; ↝ Left (Tnum,11)
 
-; Type des booléens
+;;; Type des booléens
 ;true ; ↝ Left (Tbool,True)
 ;false ; ↝ Left (Tbool,False)
 
-; (τ1 ... τn → τ ) Type d’une fonction
-;(fob ((a Num) (b Num)) (+ a b)) ; ↝ Left (Tfob [Tnum,Tnum] Tnum,<fobjet>)
+;;; Annotations de type
+;(: 10 Num) 
+    ; ↝ Left (Tnum, 10)
+;(: (> 2 5) Bool) 
+    ;↝ Left (Tbool,False)
+    ; Test de typage pour un if (annotation de types) : 
+;(: (if (> 5 3) 42 0) Num) 
+    ; ↝ Left (Tnum,42)
+;(: (fob ((x Num) (y Num)) (+ x y)) (Num Num -> Num)) 
+    ; ↝ Left (Tfob [Tnum,Tnum] Tnum,<fobjet>)
+;(fob ((a Num) (b Num)) (+ a b)) 
+    ; ↝ Left (Tfob [Tnum,Tnum] Tnum,<fobjet>)
 
-; Test de typage pour une fonction anonyme (fob) (annotation de types) : 
-;(: (fob ((x Num) 
-;         (y Num)) 
-;     (+ x y)) 
-;  (Num Num -> Num)) ; ↝ Left (Tfob [Tnum,Tnum] Tnum,<fobjet>)
+;;; Erreur annotations de type et variable undefined
+;(: 42 Bool) 
+    ; ↝ Right "Expression type (Tnum) does not match expected type (Tbool)"
+;(> x 5) 
+    ; ↝ Right "Variable x not found"
+;((+ 1 2) 3) 
+    ; ↝ Right "Tnum is not a function"
 
-; Test de typage pour un if (annotation de types) : 
-;(: (if (> 5 3) 
-;        42 
-;        0) 
-;  Num) ; ↝ Left (Tnum,42)
+;; Erreurs for condition (if)
+;(if (= 5 5) x 0) 
+    ; ↝ Right "Variable x not found"
+;(if (= 5 5) true 0) 
+    ; ↝ Right "Branch types do not match 
+    ; -> Lvar \"true\" : Tbool and Lnum 0 : Tnum"
+;(if 42 1 0) 
+    ; ↝ Right "Condition is not a boolean"
 
-34
+;;; Erreur number of arguments
+;((fob ((x Num) (y Num)) (+ x y)) 3) 
+    ; ↝ Right "Incorrect number of arguments. Expected 2 but got 1"
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Tests complexes sans erreur de typage
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; Annotation de type pour fob imbriquée
+;(: (fob ((x Num) (y Num)) 
+;        (fob ((z Num)) 
+;        (+ x (+ y z)))) 
+;    (Num Num -> (Num -> Num)))
+    ; ↝ Left (Tfob [Tnum,Tnum] (Tfob [Tnum] Tnum),<fobjet>)
+
+;;; Fonction récursive avec typage complexe (similaire à ex TP1)
+;(fix (((even (n Num)) 
+;         (if (= n 0) true (odd (- n 1))))
+;       ((odd (n Num)) 
+;         (if (= n 0) false (even (- n 1))))) 
+;     (even 4)) ; ↝ Left (Tbool,True)
+
+; Test avec une déclaration locale (let) utilisant fob typé
+;(let mult (fob ((x Num) 
+;                (y Num)) 
+;            (* x y)) 
+;    (mult 5 10))                    ; ↝ Left (Tnum,50)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Tests complexes avec erreur de typage
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; Erreur annotation de type
+;(: (fob ((x Num)) (* x x)) Num)
+    ; ↝ Right "Expression type (Tfob [Tnum] Tnum) 
+    ; does not match expected type (Tnum)"
+
+;;; Erreur annotation de type avec le type des arguments incompatibles
+;(: ((fob ((x Num) (y Bool)) (if y x 0)) 100 101) Num)
+    ; ↝ Right "Arguments types [Tnum,Tnum] 
+    ;   do not match expected types [Tnum,Tbool]"
+
+;;; Erreur d'un if types des branches incompatibles (avec sucre syntaxique)
+(fix (((test (x Num)) 
+       (if false x true))) 
+     (test 5))
+; ↝ Right "Branch types do not match 
+;   -> Lvar \"x\" : Tnum and Lvar \"true\" : Tbool"
+
 
 ; variables locales incluent annotations de type pour fix
 ;(fix ((x Num 10)
@@ -48,12 +106,6 @@
 ;  variables locales non typées pour fix
 ;(fix ((x 10) (y 20))
 ;     (+ x y))                                    ; ↝ Left (Tnum,30)
-
-; Test avec une déclaration locale (let) utilisant fob typé
-;(let mult (fob ((x Num) 
-;                (y Num)) 
-;            (* x y)) 
-;    (mult 5 10))                    ; ↝ Left (Tnum,50)
 
 
 

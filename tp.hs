@@ -14,7 +14,8 @@
 import Text.ParserCombinators.Parsec -- Bibliothèque d'analyse syntaxique.
 import Data.Char                -- Conversion de Chars de/vers Int et autres.
 import System.IO                -- Pour stdout, hPutStr
-
+import Data.List
+import Foreign.C (errnoToIOError)
 ---------------------------------------------------------------------------
 -- La représentation interne des expressions de notre language           --
 ---------------------------------------------------------------------------
@@ -348,7 +349,7 @@ check _ tenv (Lvar x) =
 check True tenv (Ltype e t) =
     let texp = check True tenv e
     in case texp of
-        Terror errMsg -> Terror ("Error in annotated expression: " ++ errMsg)
+        Terror errMsg -> Terror errMsg
         _ -> if texp == t
              then t
              else Terror ("Expression type (" 
@@ -356,20 +357,22 @@ check True tenv (Ltype e t) =
                         ") does not match expected type (" ++ show t ++ ")")
 
 -- Condition --
--- on verifie que la condition est boolean
--- on verifie que les branches de retour (true / false)
--- ont le même type (qui sera le type de l'expression)
+-- On vérifie que la condition est de type Bool
+-- et que les branches ont des types compatibles
 check True tenv (Ltest cond etrue efalse) =
     case check True tenv cond of
         Tbool ->
             let t1 = check True tenv etrue
                 t2 = check True tenv efalse
-            in if t1 == t2
-                then t1
-                else Terror ("Branch do not match types -> " 
-                ++ show etrue ++ " : " ++ show t1 ++ " and " 
-                ++ show efalse ++ " : " ++ show t2)
-        _ -> Terror  "Condition is not a boolean"
+            in case (t1, t2) of
+                (Terror errMsg, _) -> Terror errMsg
+                (_, Terror errMsg) -> Terror errMsg
+                _ | t1 == t2 -> t1
+                  | otherwise -> Terror ("Branch types do not match -> " 
+                                       ++ show etrue ++ " : " 
+                                       ++ show t1 ++ " and " 
+                                       ++ show efalse ++ " : " ++ show t2)
+        _ -> Terror "Condition is not a boolean"
 
 -- Fonction --
 -- extrait le type déclaré des arguments et 
@@ -380,39 +383,30 @@ check True tenv (Lfob args e) =
     let targs = map snd args
         tenv' = tenv ++ args
         texp = check True tenv' e
-    in Tfob targs texp
+    in if isTerror texp
+        then texp
+        else Tfob targs texp
 
 -- Appel de fonction --
 -- trouve le type de e et verifie que c'est bien une fonction
 -- verifie que le type des arguments respectent la déclaration (l'ordre compte)
 -- renvoi le type de retour de la fonction (type de l'appel)
--- check True tenv (Lsend e args) =
---     case check True tenv e of
---         Tfob targs treturn ->
---             let actualTypes = map (check True tenv) args
---                 matches = foldr (\(expected, actual) acc -> (expected == actual) && acc)
---                                 True
---                                 (zip targs actualTypes)
---             in if matches
---                 then treturn
---                 else Terror $ "Arguments types " ++ show actualTypes ++ " do not match expected types"
---         v -> Terror $ show v ++ " is not a function"
-
 check True tenv (Lsend e args) =
     case check True tenv e of
         Tfob targs treturn ->
-            let actualTypes = map (check True tenv) args
-            in case () of
-                _ | any isTerror actualTypes ->
-                      Terror ("Error in function arguments: " 
-                            ++ show actualTypes)
-                  | length targs /= length actualTypes ->
+            let actualTypes = map (check True tenv) args in
+            let errorT = find isTerror actualTypes in
+            case errorT of
+                Just err  -> err
+                    --   Terror ("Error in function arguments: " 
+                    --         ++ show actualTypes)
+                _ | length targs /= length actualTypes ->
                       Terror ("Incorrect number of arguments. Expected " 
                             ++ show (length targs) ++
                             " but got " ++ show (length actualTypes))
-                  | all (uncurry (==)) (zip targs actualTypes) ->
+                _ | all (uncurry (==)) (zip targs actualTypes) ->
                       treturn
-                  | otherwise ->
+                _ | otherwise ->
                       Terror ("Arguments types " 
                             ++ show actualTypes ++ 
                             " do not match expected types " ++ show targs)
@@ -436,7 +430,11 @@ check _ tenv (Lfix decl body) =
     let 
         guessedTypes = map (\(vars, e) -> (vars, check False tenv e)) decl
         tenv' = guessedTypes ++ map (\(var, e) -> (var, check True (guessedTypes ++ tenv) e)) decl 
-    in check True (tenv ++ tenv') body
+        errorT = find (\x -> isTerror (snd x)) tenv'
+    in 
+        case errorT of
+            Just e -> snd e
+            _ -> check True (tenv ++ tenv') body
 -- ERREUR DETECTEE APRES DEBUGGING : in check True tenv' body
 
 -- Seulement pour fix --
