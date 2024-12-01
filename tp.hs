@@ -429,7 +429,7 @@ check True tenv (Llet var e1 e2) =
 check _ tenv (Lfix decl body) =
     let 
         guessedTypes = map (\(vars, e) -> (vars, check False tenv e)) decl
-        tenv' = guessedTypes ++ map (\(var, e) -> (var, check True (guessedTypes ++ tenv) e)) decl 
+        tenv' = map (\(var, e) -> (var, check True (guessedTypes ++ tenv) e)) decl 
         errorT = find (\x -> isTerror (snd x)) tenv'
     in 
         case errorT of
@@ -440,8 +440,8 @@ check _ tenv (Lfix decl body) =
 -- Seulement pour fix --
 -- assume que les expressions sont bien typés --
 check False _ (Ltype _ t) = t
-check False tenv (Ltest _ etrue _) =
-    check False tenv etrue
+check False tenv (Ltest _ _ e) =
+    check False tenv e
 check False tenv (Lfob args e) =
     Tfob (map snd args) (check False (args ++ tenv) e)
 check False tenv (Lsend e _) =
