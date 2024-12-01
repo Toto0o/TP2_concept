@@ -316,6 +316,12 @@ env0 = let binop f op =
 -- Vérification des types                                                --
 ---------------------------------------------------------------------------
 
+-- Fonction auxiliaire pour vérifier si type est un Terror
+isTerror :: Type -> Bool
+isTerror (Terror _) = True
+isTerror _ = False
+
+
 type TEnv = [(Var, Type)]
 
 -- `check c Γ e` renvoie le type de `e` dans l'environnement `Γ`.
@@ -341,9 +347,13 @@ check _ tenv (Lvar x) =
 -- le type déclaré concorde avec l'expression
 check True tenv (Ltype e t) =
     let texp = check True tenv e
-    in if texp == t
-        then t
-        else Terror "Expression type does not match expected type"
+    in case texp of
+        Terror errMsg -> Terror ("Error in annotated expression: " ++ errMsg)
+        _ -> if texp == t
+             then t
+             else Terror ("Expression type (" 
+                        ++ show texp ++ 
+                        ") does not match expected type (" ++ show t ++ ")")
 
 -- Condition --
 -- on verifie que la condition est boolean
@@ -356,7 +366,9 @@ check True tenv (Ltest cond etrue efalse) =
                 t2 = check True tenv efalse
             in if t1 == t2
                 then t1
-                else Terror $ "Branch do not match types -> " ++ show etrue ++ " : " ++ show t1 ++ " and " ++ show efalse ++ " : " ++ show t2
+                else Terror ("Branch do not match types -> " 
+                ++ show etrue ++ " : " ++ show t1 ++ " and " 
+                ++ show efalse ++ " : " ++ show t2)
         _ -> Terror  "Condition is not a boolean"
 
 -- Fonction --
@@ -374,17 +386,38 @@ check True tenv (Lfob args e) =
 -- trouve le type de e et verifie que c'est bien une fonction
 -- verifie que le type des arguments respectent la déclaration (l'ordre compte)
 -- renvoi le type de retour de la fonction (type de l'appel)
+-- check True tenv (Lsend e args) =
+--     case check True tenv e of
+--         Tfob targs treturn ->
+--             let actualTypes = map (check True tenv) args
+--                 matches = foldr (\(expected, actual) acc -> (expected == actual) && acc)
+--                                 True
+--                                 (zip targs actualTypes)
+--             in if matches
+--                 then treturn
+--                 else Terror $ "Arguments types " ++ show actualTypes ++ " do not match expected types"
+--         v -> Terror $ show v ++ " is not a function"
+
 check True tenv (Lsend e args) =
     case check True tenv e of
         Tfob targs treturn ->
             let actualTypes = map (check True tenv) args
-                matches = foldr (\(expected, actual) acc -> (expected == actual) && acc)
-                                True
-                                (zip targs actualTypes)
-            in if matches
-                then treturn
-                else Terror $ "Arguments types " ++ show actualTypes ++ " do not match expected types"
+            in case () of
+                _ | any isTerror actualTypes ->
+                      Terror ("Error in function arguments: " 
+                            ++ show actualTypes)
+                  | length targs /= length actualTypes ->
+                      Terror ("Incorrect number of arguments. Expected " 
+                            ++ show (length targs) ++
+                            " but got " ++ show (length actualTypes))
+                  | all (uncurry (==)) (zip targs actualTypes) ->
+                      treturn
+                  | otherwise ->
+                      Terror ("Arguments types " 
+                            ++ show actualTypes ++ 
+                            " do not match expected types " ++ show targs)
         v -> Terror $ show v ++ " is not a function"
+
 
 -- Déclaration locale simple --
 -- bind le type de e1 et x dans l'environnement
@@ -397,12 +430,14 @@ check True tenv (Llet var e1 e2) =
 -- Lfix sera toujours appelé avec True
 -- première étape de guessing des types des déclarations
 -- ajouter à l'environnement temporaire et verifier avec True les types
--- trouver le type de l'expression de fix avec les types des déclarations vérifiés
+-- trouver le type de l'expression de fix avec les types des déclarations 
+-- vérifiés
 check _ tenv (Lfix decl body) =
     let 
         guessedTypes = map (\(vars, e) -> (vars, check False tenv e)) decl
         tenv' = guessedTypes ++ map (\(var, e) -> (var, check True (guessedTypes ++ tenv) e)) decl 
-    in check True tenv' body
+    in check True (tenv ++ tenv') body
+-- ERREUR DETECTEE APRES DEBUGGING : in check True tenv' body
 
 -- Seulement pour fix --
 -- assume que les expressions sont bien typés --

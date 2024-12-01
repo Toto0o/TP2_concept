@@ -1,33 +1,81 @@
-; Test file
 
-;  variables locales non typées pour fix
-(fix ((x 10) (y 20))
-     (+ x y))                       ; ↝ 30
+; Ce fichier contient une série de tests destinés à valider l'implémentation
+; de l'interpréteur du langage Sslip. Ces tests se concentrent sur les 
+; nouvelles spécifications du langage typé statiquement, en ce qui a trait à 
+; la vérification des types.
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Tests unitaires et préliminaires
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Type des nombres entiers
+5  ; ↝ Left (Tnum,5)
+(+ 5 6) ; ↝ Left (Tnum,11)
+(: (> 2 5) Bool) ;↝ Left (Tbool,False)
+(: (> x 5) Bool) ;↝ 
+;(if (= x 5) x 0) ; Right "Condition is not a boolean"
+
+;((x Num 5) x) ; Left (Tnum,5)
+
+; Type des booléens
+;true ; ↝ Left (Tbool,True)
+;false ; ↝ Left (Tbool,False)
+
+; (τ1 ... τn → τ ) Type d’une fonction
+;(fob ((a Num) (b Num)) (+ a b)) ; ↝ Left (Tfob [Tnum,Tnum] Tnum,<fobjet>)
+
+; Test de typage pour une fonction anonyme (fob) (annotation de types) : 
+;(: (fob ((x Num) 
+;         (y Num)) 
+;     (+ x y)) 
+;  (Num Num -> Num)) ; ↝ Left (Tfob [Tnum,Tnum] Tnum,<fobjet>)
+
+; Test de typage pour un if (annotation de types) : 
+;(: (if (> 5 3) 
+;        42 
+;        0) 
+;  Num) ; ↝ Left (Tnum,42)
+
+34
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ; variables locales incluent annotations de type pour fix
-(fix ((x Num 10)
-      (y Num 20))
-     (* x y))                       ; ↝ 200
+;(fix ((x Num 10)
+;      (y Num 20))
+;     (- x y))                                   ; ↝ Left (Tnum,-10)
+
+;  variables locales non typées pour fix
+;(fix ((x 10) (y 20))
+;     (+ x y))                                    ; ↝ Left (Tnum,30)
+
+; Test avec une déclaration locale (let) utilisant fob typé
+;(let mult (fob ((x Num) 
+;                (y Num)) 
+;            (* x y)) 
+;    (mult 5 10))                    ; ↝ Left (Tnum,50)
+
+
 
 ; Exemple du prof pour les fix récursifs typée
-(fix (((fact Num (n Num)) 
-       (if (> n 0) (* n (fact (- n 1))) 1)))
-     (fact 5)) ; ↝ 120
+;(fix (((fact (n Num)) 
+;       (if (> n 0) (* n (fact (- n 1))) 1)))
+;     (fact 5))                      ; ↝ Left (Tfob [Tnum,Tnum] Tnum,120)
 
 ; Déclaration combinées (variables et fonctions)
-(fix ((x Num 10)
-      (y Num 5)
-      ((sum Num (a Num) (b Num)) (+ a b)))
-     (sum x y)) ; ↝ 15
+;(fix ((x Num 10)
+;      (y Num 5)
+;      ((sum (a Num) (b Num)) (+ a b)))
+;     (sum x y))                     ; ↝ Left (Tfob [Tnum,Tnum] Tnum,15)
 
 
 ; Fonction typée qui retourne un type fonctionnel
-(fix (((adder (x Num) (y Num)) (fob ((a Num) (b Num)) (+ a b)))
-      ((result (x Num)) (adder x 20)))
-     (result 10)) ; ↝ 30
+;(fix (((adder (x Num) (y Num)) (fob ((a Num) (b Num)) (+ a b)))
+;      ((result (x Num)) (adder x 20)))
+;     (result 10))                               ; ↝ 30
 
 
 ; Fonctions locales se réfèrant mutuellement dans une déclaration fix 
-(fix (((even Bool (n Num)) (if (= n 0) true (odd (- n 1))))
-      ((odd Bool (n Num)) (if (= n 0) false (even (- n 1)))))
-     (even 4)) ; ↝ true
+;(fix (((even Bool (n Num)) (if (= n 0) true (odd (- n 1))))
+;      ((odd Bool (n Num)) (if (= n 0) false (even (- n 1)))))
+;     (even 4))                                  ; ↝ true
