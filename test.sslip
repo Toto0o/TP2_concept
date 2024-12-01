@@ -15,7 +15,7 @@
 (: (> x 5) Bool) ;↝ 
 ;(if (= x 5) x 0) ; Right "Condition is not a boolean"
 
-;((x Num 5) x) ; Left (Tnum,5)
+((x Num 5) x) ; Left (Tnum,5)
 
 ; Type des booléens
 ;true ; ↝ Left (Tbool,True)
@@ -36,7 +36,7 @@
 ;        0) 
 ;  Num) ; ↝ Left (Tnum,42)
 
-34
+;34
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
