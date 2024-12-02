@@ -1,0 +1,202 @@
+
+\documentclass{article}
+
+% Pour enlever les indentations; trouvé sur : 
+% https://tex.stackexchange.com/questions/59245/how-to-disable-automatic-indent
+\usepackage{amsfonts}            %For \leadsto 
+\usepackage{amsmath}
+\usepackage{ragged2e}
+\newlength\tindent 
+\setlength{\tindent}{\parindent}
+\setlength{\parindent}{0pt}
+\renewcommand{\indent}{\hspace*{\tindent}}
+\newcommand \mML {\ensuremath\mu\textsl{ML}}
+\newcommand \kw [1] {\textsf{#1}}
+\newcommand \id [1] {\textsl{#1}}
+\newcommand \punc [1] {\kw{`#1'}}
+\newcommand \str [1] {\texttt{"#1"}}
+\newenvironment{outitemize}{
+  \begin{itemize}
+  \let \origitem \item \def \item {\origitem[]\hspace{-18pt}}
+}{
+  \end{itemize}
+}
+\newcommand \Align [2][t] {\begin{array}[#1]{@{}l} #2 \end{array}}
+
+
+\begin{document}
+\raggedright
+\begin{titlepage}
+    \begin{center}
+  
+ 
+        \Huge
+        \textbf{TP2}\\
+        \vspace{0.5cm}
+ 
+        \vspace{3.5cm}
+        
+        \large
+       \textbf{
+        Antoine Tessier : 20288121 \\
+        Dominick Basque Morin : 20221041
+        }
+        \vspace{3.5cm}
+ 
+        Présenté à\\ 
+        Stefan Monnier
+        
+        \vspace{3.5cm}
+        
+        Dans le cadre du cours\\
+        IFT2035
+
+         \vspace{3.5cm}
+        
+        Université de Montréal
+
+        \vspace{2.5mm}
+        01-12-2024
+
+    \end{center}
+\end{titlepage}
+
+\section{Introduction}
+\begin{justify}
+Le rapport suivant présente des démarches d'élaboration d'un interpréteur du langage fictif SSlip dans le cadre du deuxième travail pratique. Ce dernier pratique était une continuité du travail entamé lors du premier travail pratique. En s'appuyant sur les bases de ce dernier, nous étendons le langage Slip pour inclure des annotations et des vérifications de types (typage statique), ainsi que deux nouvelles syntaxes de "sucrage". Il nous était également demandé d'introduire des optimisations de code basées sur des indexes de De Bruijn. Ce rapport présente les étapes suivies pour la réalisation de ce projet : compréhension des spécifications, modifications et extensions du code existant, ainsi que les défis rencontrés et les décisions prises tout au long du processus. Il inclut également une discussion sur les tests conçus pour valider notre implémentation et sur les ajustements nécessaires pour intégrer ces nouvelles fonctionnalités.
+\end{justify}
+
+\section{ Modifications de la fonction \texttt{s2l}}
+\begin{justify}
+Lors de la correction de notre code pour la fonction \texttt{s2l}, nous avons identifié une erreur dans la gestion des \texttt{fob}, comme souligné par le correcteur. Celui-ci a relevé que notre implémentation ne prenait pas correctement en compte les arguments passés à un \texttt{fob} lorsque celui-ci contenait plusieurs variables. Voici un exemple de tests échoués lors de la correction :
+\end{justify}
+
+\begin{quote}
+\texttt{((fob (x1 x2 x3 x4 x5) x4) 1 2 3 4 5)} $\rightarrow$ \texttt{4} \\
+\textit{ Erreur obtenue : Exception: Variable x4 not defined.}
+\end{quote}
+
+\begin{quote}
+\texttt{lexpOf "((fob (x1 x2 x3 x4 x5) x4) 1 2 3 4 5)"} \\
+\texttt{$\rightarrow$ Lsend (Lfob [] (Lvar "x4")) [Lnum 1, Lnum 2, Lnum 3, Lnum 4, Lnum 5]}
+\end{quote}
+
+\begin{justify}
+Nous avons pu constaté que notre code de s2l gèrait mal les \texttt{fob}. La liste qui devait contenir les paramètres du \texttt{fob} était vide : \texttt{[]}, tandis qu'elle devrait y avoir les 5 variables. Pour corriger ce problème, nous avons étudié le corrigé fourni pour le TP1 et ajusté notre implémentation afin de gérer correctement les arguments passés aux \texttt{fob}. Cela impliquait l'utilisation de la fonction auxiliaire s2list, que nous avons simplement repris telle quelle du corrigé. 
+\end{justify}
+
+\subsection{Modifications subséquentes de apportées à \texttt{s2l}}
+Une première partie de l'intégration de typage statique fu l'intégration des annotations de type dans la fonction \texttt{s2l}. Nous avons modifié plusieurs sections du corrigé fourni pour le TP1. Nos modifications principales concernent le traitement des déclarations dans la syntaxe de \texttt{fix}. 
+
+\paragraph{Ajout de la gestion des types et variables typées.}
+Pour prendre en charge les annotations de type, nous avons modifiée \texttt{svar2lvar} avec la ligne :
+\begin{verbatim}
+svar2lvar (Snode (Ssym v) [t]) = (v, svar2ltype t)
+\end{verbatim}
+Nous permettant ainsi d'associer un type à chaque variable en analysant la structure. Nous avons également introduit une nouvelle fonction \texttt{svar2ltype} qui nous permet de traduire les types déclarés dans la syntaxe source (\texttt{Num}, \texttt{Bool}, etc.) vers les types internes (\texttt{Tnum}, \texttt{Tbool}, etc.)
+
+
+\paragraph{Refonte du traitement des déclarations dans \texttt{fix}.}
+    \begin{justify}
+    Nous avons également modifié la gestion des déclarations dans \texttt{fix} pour prendre en charge les variables et les \texttt{fob} typés. La fonction \texttt{sdecl2ldecl} a été ajustée pour permettre les déclarations typées en associant une annotation de type aux expressions via \texttt{Ltype}. Elle permet également de gérer les \texttt{fob} non typés et typés, en construisant des expressions \texttt{Lfob} adaptées.
+    \end{justify}
+
+\paragraph{Tests et validation des modifications apportées à \texttt{s2l}}
+    \begin{justify}
+    Nous considérons que ce deuxième travail a été plus facile à faire. Nous étions déjà familier avec le code fourni et nous avions déjà établit une démarche pour valider progressivement nos ajouts en utilisant les fonctions SexpOf et LexpOf avec des exemples utilisés lors du TP1. Il ne s'agissait que de modifier pour intégrer l'annotation de types à ces exemples, et nous pouvions visualiser dans le terminal le format de tokenisation (sexp) de ces exemples et valider que la valeur en Lexp correspondait à celle attendue. 
+    \end{justify}
+    \begin{justify}
+    Au fur et à mesure des modifications, nous nous sommes assurés de tester les changements apportés, ce qui nous aura probablement évité  d'avoir des mauvaises surprises. Nous avons d'abord testé nos toutes premières modfifications apportées au \texttt{fob} à l'aide de tests spécifiques, incluant les cas particuliers mentionnés par le correcteur: 
+    \end{justify}
+        \begin{verbatim}
+        -- Test 1 : Vérification du fonctionnement d'un fob et d'un let
+        (let max (fob (x y) (if (> x y) x y))
+            (max 10 15))                        ; -> 15
+        
+        -- Test 2 : Vérification avec plusieurs arguments
+        ((fob (x1 x2 x3 x4 x5) x4) 1 2 3 4 5)   ; -> 4
+        
+        -- Test 3 : Vérification avec une déclaration locale
+        ((fob (x1 x2) (let y x1 (/ y x2))) 12 4) ; -> 3
+        \end{verbatim}
+    \begin{justify}
+    Ces tests ont confirmé que la correction apportée permet de gérer adéquatement les \texttt{fob} avec plusieurs arguments. Puis nous avons utiliser les fonctions lexpOf pour valider les implémentations. Les tests incluent :
+    \end{justify}
+        \begin{itemize}
+            \item Des \texttt{fob} avec plusieurs arguments, typés et non typés.
+            \item Des cas spécifiques aux déclarations \texttt{fix}, avec des variables et fonctions déclarées localement.
+            \item Des scénarios mélangeant typage et structures conditionnelles.
+        \end{itemize}
+    \begin{justify}
+    Ces tests nous ont permis de confirmer que les annotations de type étaient correctement interprétées et que la gestion des \texttt{fob} fonctionnait comme prévu, même pour les cas problématiques du TP1.
+    \end{justify}
+
+\paragraph{Conclusion sur les modifications.}
+Ces ajustements ont permis d’adapter le corrigé du TP1 aux exigences accrues du TP2. En ajoutant une gestion explicite des types et en corrigeant les erreurs relevées précédemment, notre implémentation de \texttt{s2l} est désormais plus robuste et conforme aux règles de typage de \texttt{SSlip}.
+
+
+\section*{Fonction "Check"}
+\begin{justify}
+L’écriture de cette fonction s’est faite sans grande difficulté, sauf pour le cas
+d’un \texttt{Lfix}. Au départ, nous avions écrit un cas pour \texttt{check False TEnv (Lfix decl body)}.
+Or, après analyse du code pour \texttt{run}, nous avons remarqué que \texttt{check} est toujours appelé
+en premier avec \texttt{True}. Ainsi, nous avons modifié le code pour que \texttt{check} vérifie les déclarations
+avec \texttt{False}, puis avec \texttt{True}, pour finalement vérifier le corps de la déclaration \texttt{fix}.
+\end{justify}
+\begin{justify}
+De plus, nous avons dû ajouter une ligne de code avant d’inférer et de vérifier les types
+de déclarations; cette ligne ajoutait des types \texttt{Terror "Temporary"} afin d’éviter de se retrouver
+avec des cas de récursion mutuelle où la vérification échoue puisque les variables
+«n’existent» pas encore dans l’environnement.
+\end{justify}
+\begin{justify}
+Par ailleurs, l’écriture du fichier \texttt{test.sslip} a permis de révéler des bugs supplémentaires dans
+notre implémentation. Un test en particulier, définissant des variables locales dans un \texttt{fix},
+a mis en lumière une erreur dans l’environnement temporaire utilisé pour la vérification.
+\end{justify}
+Voici le test en question :
+\begin{lstlisting}
+(fix ((x Num 10)
+      (y Num 20))
+     (- x y))                                   ; ↝ -10
+\end{lstlisting}
+
+Lors de son exécution, nous avons obtenu le message d’erreur suivant :
+\begin{verbatim}
+Right "Terror \"Variable * not found\" is not a function"
+\end{verbatim}
+
+\begin{justify}
+Pour corriger ce problème, nous avons modifié notre implémentation afin que l’environnement
+initial soit correctement combiné avec l’environnement temporaire, comme suit :
+\end{justify}
+\begin{lstlisting}
+check True (tenv ++ tenv') body
+\end{lstlisting}
+
+\begin{justify}
+Cette expérience nous a permis de renforcer nos compétences en débogage avec Haskell en utilisant
+des outils comme \texttt{:break}, \texttt{:continue} et \texttt{:step} pour examiner les valeurs d’environnement
+et d’expression. Nous avons ainsi appris l’importance de maintenir un environnement cohérent
+lors de la vérification des types dans des structures récursives comme \texttt{fix}.
+\end{justify}
+
+De plus, lors de la vérification des test boolean, l'idée de base était de comparer les types de l'expression lorsque vrai et le type de l'expression lorsque faux. Or, nous nous somme rendu compte que la vérification renvoiyait une erreur du type : 
+\begin{verbatim}
+    (if (= 5 5) x 0)
+    
+    Right "Branch types do not match -> Lvar \"x"\ : Terror "Variable 
+    not found" and Lnum 0 : Tnum"
+\end{verbatim}
+alors que nous cherchions à renvoyer que la variable "x" n'existait pas. Ainsi, nous avons du modifier le code pour vérifier séparement chacune des branches du test, et d'ensuite les comparer pour attraper les erreurs à l'intérieur même d'une branche (s'il y en a) avant la comparaison. 
+\\
+
+Finalement, nous avons écris la fonction auxilière \texttt{isTerror :: Type -> Bool} pour faciliter la gestion des erreurs de types. La fonction ne fait que renvoyer true si le type est une erreur, et false sinon.
+
+\section*{Fonction "l2d" et "eval"}
+\subsection*{l2d}
+L'écriture de cette fonction s'est faite sans grand problème, puisqu'il n'y avait pas de gros travail de compréhension de la syntaxe comme avec \texttt{s2l} et les \texttt{Sexp}. De plus, la fonction \texttt{lookupDI} qui permet de trouver l'indice de \texttt{De Buijn} était déjà implmenté. Nous avions donc qu'a suivre le \texttt{data Lexp} et le \texttt{data Dexp} afin de convertir d'un à l'autre.
+\subsection*{eval}
+Sans grande surprise, le code pour \texttt{eval} est très similaire au code du TP1, à quelques détails près. Premièrement, au lieu de chercher la valeur d'une varibale par son nom, on la cherche par sa position dans l'envrironnement. Ensuite, les arguments des fonctions ne sont plus définie par leur nom. On sauve plutôt le nombre d'argument de la fonction dans la strucutre du \texttt{Dfob} 
+\end{document}
+

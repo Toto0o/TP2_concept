@@ -1,4 +1,0 @@
-
-
-    ((fob ((x Num) (y Num)) (+ x y)) true 2)
-    
