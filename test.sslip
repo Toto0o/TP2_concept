@@ -6,7 +6,7 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Tests unitaires et préliminaires
+; Tests unitaires et préliminaires (Peuvent être décommenté au besoin)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; Type des nombres entiers
@@ -51,42 +51,63 @@
 ;((fob ((x Num) (y Num)) (+ x y)) 3) 
     ; ↝ Right "Incorrect number of arguments. Expected 2 but got 1"
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Tests complexes sans erreur de typage
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; Annotation de type pour fob imbriquée
-;(: (fob ((x Num) (y Num)) 
-;        (fob ((z Num)) 
-;        (+ x (+ y z)))) 
-;    (Num Num -> (Num -> Num)))
+(: (fob ((x Num) (y Num)) 
+        (fob ((z Num)) 
+        (+ x (+ y z)))) 
+    (Num Num -> (Num -> Num)))
     ; ↝ Left (Tfob [Tnum,Tnum] (Tfob [Tnum] Tnum),<fobjet>)
 
+;;; Déclaration locale (let) utilisant fob typé
+(let mult (fob ((x Num) 
+                (y Num)) 
+            (* x y)) 
+    (mult 5 10)) 
+    ; ↝ Left (Tnum,50)
+
+;;; Déclaration combinées (variables et fonctions)
+(fix ((x Num 10)
+      (y Num 5)
+      ((sum (a Num) (b Num)) (+ a b)))
+     (sum x y))                     
+    ; ↝ Left (Tnum,15)
+
+;;; Exemple du prof pour les fix récursifs typée
+(fix (((fact (n Num)) 
+       (if (> n 0) (* n (fact (- n 1))) 1)))
+     (fact 5))                      
+    ; ↝ Left (Tnum,120)
+
+;;; Fonction typée qui retourne un type fonctionnel
+(fix (((adder (x Num) (y Num)) (fob ((a Num) (b Num)) (+ a b)))
+      ((result (x Num)) (adder x 20)))
+     (result 10))        
+    ; ↝ Tfob [Tnum,Tnum] (Tfob [Tnum,Tnum] Tnum),<fobjet>
+
+;;; ANTOINE Erreur à regarder
 ;;; Fonction récursive avec typage complexe (similaire à ex TP1)
 ;(fix (((even (n Num)) 
 ;         (if (= n 0) true (odd (- n 1))))
 ;       ((odd (n Num)) 
 ;         (if (= n 0) false (even (- n 1))))) 
-;     (even 4)) ; ↝ Left (Tbool,True)
-
-; Test avec une déclaration locale (let) utilisant fob typé
-;(let mult (fob ((x Num) 
-;                (y Num)) 
-;            (* x y)) 
-;    (mult 5 10))                    ; ↝ Left (Tnum,50)
+;     (even 4)) 
+    ; ↝ Left (Tbool,True)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Tests complexes avec erreur de typage
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; Erreur annotation de type
-;(: (fob ((x Num)) (* x x)) Num)
+(: (fob ((x Num)) (* x x)) Num)
     ; ↝ Right "Expression type (Tfob [Tnum] Tnum) 
     ; does not match expected type (Tnum)"
 
 ;;; Erreur annotation de type avec le type des arguments incompatibles
-;(: ((fob ((x Num) (y Bool)) (if y x 0)) 100 101) Num)
+(: ((fob ((x Num) (y Bool)) (if y x 0)) 100 101) Num)
     ; ↝ Right "Arguments types [Tnum,Tnum] 
     ;   do not match expected types [Tnum,Tbool]"
 
@@ -94,40 +115,5 @@
 (fix (((test (x Num)) 
        (if false x true))) 
      (test 5))
-; ↝ Right "Branch types do not match 
-;   -> Lvar \"x\" : Tnum and Lvar \"true\" : Tbool"
-
-
-; variables locales incluent annotations de type pour fix
-;(fix ((x Num 10)
-;      (y Num 20))
-;     (- x y))                                   ; ↝ Left (Tnum,-10)
-
-;  variables locales non typées pour fix
-;(fix ((x 10) (y 20))
-;     (+ x y))                                    ; ↝ Left (Tnum,30)
-
-
-
-; Exemple du prof pour les fix récursifs typée
-;(fix (((fact (n Num)) 
-;       (if (> n 0) (* n (fact (- n 1))) 1)))
-;     (fact 5))                      ; ↝ Left (Tfob [Tnum,Tnum] Tnum,120)
-
-; Déclaration combinées (variables et fonctions)
-;(fix ((x Num 10)
-;      (y Num 5)
-;      ((sum (a Num) (b Num)) (+ a b)))
-;     (sum x y))                     ; ↝ Left (Tfob [Tnum,Tnum] Tnum,15)
-
-
-; Fonction typée qui retourne un type fonctionnel
-;(fix (((adder (x Num) (y Num)) (fob ((a Num) (b Num)) (+ a b)))
-;      ((result (x Num)) (adder x 20)))
-;     (result 10))                               ; ↝ 30
-
-
-; Fonctions locales se réfèrant mutuellement dans une déclaration fix 
-;(fix (((even Bool (n Num)) (if (= n 0) true (odd (- n 1))))
-;      ((odd Bool (n Num)) (if (= n 0) false (even (- n 1)))))
-;     (even 4))                                  ; ↝ true
+    ; ↝ Right "Branch types do not match 
+    ;   -> Lvar \"x\" : Tnum and Lvar \"true\" : Tbool"

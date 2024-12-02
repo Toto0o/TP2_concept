@@ -15,7 +15,6 @@ import Text.ParserCombinators.Parsec -- Bibliothèque d'analyse syntaxique.
 import Data.Char                -- Conversion de Chars de/vers Int et autres.
 import System.IO                -- Pour stdout, hPutStr
 import Data.List
-import Foreign.C (errnoToIOError)
 ---------------------------------------------------------------------------
 -- La représentation interne des expressions de notre language           --
 ---------------------------------------------------------------------------
@@ -429,7 +428,8 @@ check True tenv (Llet var e1 e2) =
 check _ tenv (Lfix decl body) =
     let 
         guessedTypes = map (\(vars, e) -> (vars, check False tenv e)) decl
-        tenv' = map (\(var, e) -> (var, check True (guessedTypes ++ tenv) e)) decl 
+        tenv' = map (\(var, e) -> (var, check True 
+                                    (guessedTypes ++ tenv) e)) decl 
         errorT = find (\x -> isTerror (snd x)) tenv'
     in 
         case errorT of
@@ -480,7 +480,8 @@ data Dexp = Dnum Int             -- Constante entière.
 -- dans le contexte.
 lookupDI :: TEnv -> Var -> Int -> Int
 lookupDI ((x1, _) : xs) x2 n = if x1 == x2 then n else lookupDI xs x2 (n + 1)
-lookupDI env x _ = error ("Variable inconnue: " ++ show x ++ " in env :" ++ show env)
+lookupDI env x _ = error ("Variable inconnue: " 
+                        ++ show x ++ " in env :" ++ show env)
 
 -- Conversion de Lexp en Dexp.
 -- Les types contenus dans le "TEnv" ne sont en fait pas utilisés.
@@ -489,7 +490,8 @@ l2d _ (Lnum n) = Dnum n
 l2d _ (Lbool b) = Dbool b
 l2d tenv (Lvar v) = Dvar (lookupDI tenv v 0)
 
--- ** -> tout le reste de la fonction; ressemble pas mal au tp1, tres facile a faire car 
+-- ** -> tout le reste de la fonction; 
+-- ressemble pas mal au tp1, tres facile a faire car 
 -- la structure data Dexp facilite la manipulation des données
 -- Expression typé --
 l2d tenv (Ltype e _) =
@@ -529,7 +531,8 @@ l2d tenv (Llet x e1 e2) =
 l2d tenv (Lfix decl body) =
     let 
         -- Ajout de type temporaire pour permettre la recursion mutuelle
-        -- les variables sont ajoute a l'environnement avec un type Terror "Temporaire"
+        -- les variables sont ajoute a l'environnement avec un type 
+        -- Terror "Temporaire"
         tenv' = map (\(var,_) -> (var, Terror "Temporary")) decl ++ tenv
         ddecl = map (l2d tenv' . snd) decl
         dbody = l2d tenv' body
