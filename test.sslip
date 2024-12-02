@@ -76,25 +76,24 @@
      (sum x y))                     
     ; ↝ Left (Tnum,15)
 
-;;; Exemple du prof pour les fix récursifs typée
+;;;; Exemple du prof pour les fix récursifs typée
 (fix (((fact (n Num)) 
        (if (> n 0) (* n (fact (- n 1))) 1)))
      (fact 5))                      
     ; ↝ Left (Tnum,120)
 
-;;; Fonction typée qui retourne un type fonctionnel
+;;;; Fonction typée qui retourne un type fonctionnel
 (fix (((adder (x Num) (y Num)) (fob ((a Num) (b Num)) (+ a b)))
       ((result (x Num)) (adder x 20)))
      (result 10))        
     ; ↝ Tfob [Tnum,Tnum] (Tfob [Tnum,Tnum] Tnum),<fobjet>
 
-;;; ANTOINE Erreur à regarder
 ;;; Fonction récursive avec typage complexe (similaire à ex TP1)
-;(fix (((even (n Num)) 
-;         (if (= n 0) true (odd (- n 1))))
-;       ((odd (n Num)) 
-;         (if (= n 0) false (even (- n 1))))) 
-;     (even 4)) 
+(fix (((even (n Num)) 
+        (if (= n 0) true (odd (- n 1))))
+      ((odd (n Num)) 
+        (if (= n 0) false (even (- n 1))))) 
+     (even 4)) 
     ; ↝ Left (Tbool,True)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

@@ -434,19 +434,23 @@ check _ tenv (Lfix decl body) =
     in 
         case errorT of
             Just e -> snd e
-            _ -> check True (tenv ++ tenv') body
+            _ -> check True (tenv' ++ tenv) body
 -- ERREUR DETECTEE APRES DEBUGGING : in check True tenv' body
 
 -- Seulement pour fix --
 -- assume que les expressions sont bien typés --
 check False _ (Ltype _ t) = t
-check False tenv (Ltest _ _ e) =
-    check False tenv e
+check False tenv (Ltest _ e1 e2) =
+    let foo = check False tenv e1 in
+    case foo of
+        Terror _ -> check False tenv e2
+        _ -> foo
+
 check False tenv (Lfob args e) =
     Tfob (map snd args) (check False (args ++ tenv) e)
 check False tenv (Lsend e _) =
     case check False tenv e of
-        Tfob targs treturn -> Tfob targs treturn
+        Tfob _ treturn -> treturn
         _ -> Terror "Not a function"
 check False tenv (Llet _ _ e2) = check False tenv e2 
 
