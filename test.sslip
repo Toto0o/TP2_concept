@@ -116,3 +116,19 @@
      (test 5))
     ; ↝ Right "Branch types do not match 
     ;   -> Lvar \"x\" : Tnum and Lvar \"true\" : Tbool"
+
+
+;;; Erreur de type d'un appel a (+) avec des boolean
+(fix (((addBool (x Bool) (y Bool)) 
+        (+ x y)))
+     (addBool true true))
+     ; ↝ Right "Arguments types [Tbool,Tbool] do not match 
+     ;     expected types [Tnum,Tnum]"
+
+;;; Erreur de type dans l'appel de fonction (Tnum, Tnum) avec (Tbool Tnum)
+((fob ((x Num) (y Num)) 
+    (+ x y)) 
+ true 2)
+; ↝ Arguments types [Tbool,Tnum] do not match expected types [Tnum,Tnum]
+
+
